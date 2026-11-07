@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Contract } from '../../data/entities'
 import {
@@ -36,6 +39,7 @@ const listFields = [
   'total_value',
   'currency_code',
   'description',
+  'customer_snapshot',
   'organization_id',
   'tenant_id',
   'created_at',
@@ -66,6 +70,51 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function customerNameFromSnapshot(value: unknown): string | null {
+  let snapshot = value
+  if (typeof snapshot === 'string') {
+    try { snapshot = JSON.parse(snapshot) } catch { return null }
+  }
+  const name = (snapshot as { customer?: { displayName?: unknown } } | null)?.customer?.displayName
+  return typeof name === 'string' ? name : null
+}
+
+async function buildCustomerSnapshot(ctx: CrudCtx, customerEntityId: string) {
+  const em = ctx.container.resolve('em') as EntityManager
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId
+  const customer = await em.findOne(
+    CustomerEntity,
+    {
+      id: customerEntityId,
+      kind: 'company',
+      ...(tenantId ? { tenantId } : {}),
+      ...(organizationId ? { organizationId } : {}),
+    },
+    { populate: ['companyProfile'] },
+  )
+  if (!customer) throw new CrudHttpError(400, { error: 'Customer company not found' })
+  const profile = customer.companyProfile
+  return {
+    customer: {
+      id: customer.id,
+      kind: customer.kind,
+      displayName: customer.displayName,
+      primaryEmail: customer.primaryEmail ?? null,
+      primaryPhone: customer.primaryPhone ?? null,
+      companyProfile: profile
+        ? {
+            id: profile.id,
+            legalName: profile.legalName ?? null,
+            brandName: profile.brandName ?? null,
+            domain: profile.domain ?? null,
+            websiteUrl: profile.websiteUrl ?? null,
+          }
+        : null,
+    },
+  }
+}
+
 /** Row from the query engine (snake_case columns) → stable camelCase API item. */
 function toContractListItem(item: Record<string, unknown>) {
   return {
@@ -76,6 +125,7 @@ function toContractListItem(item: Record<string, unknown>) {
     direction: item.direction as string,
     status: item.status as string,
     customerEntityId: (item.customer_entity_id as string | null) ?? null,
+    customerName: customerNameFromSnapshot(item.customer_snapshot),
     ownerUserId: (item.owner_user_id as string | null) ?? null,
     effectiveDate: toDay(item.effective_date),
     endDate: toDay(item.end_date),
@@ -98,6 +148,7 @@ const contractListItemSchema = z.object({
   direction: z.string(),
   status: z.string(),
   customerEntityId: z.string().uuid().nullable(),
+  customerName: z.string().nullable(),
   ownerUserId: z.string().uuid().nullable(),
   effectiveDate: z.string().nullable(),
   endDate: z.string().nullable(),
@@ -126,6 +177,13 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: ENTITY_ID },
+  hooks: {
+    beforeCreate: async (input, ctx) => {
+      if (!input.customerEntityId) return input
+      const customerSnapshot = await buildCustomerSnapshot(ctx, input.customerEntityId)
+      return { ...input, customerSnapshot } as typeof input
+    },
+  },
   list: {
     schema: contractListSchema,
     entityId: ENTITY_ID,
@@ -154,6 +212,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       direction: input.direction,
       status: input.status,
       customerEntityId: input.customerEntityId ?? null,
+      customerSnapshot: (input as Record<string, unknown>).customerSnapshot ?? null,
       ownerUserId: input.ownerUserId ?? null,
       effectiveDate: dayToDate(input.effectiveDate),
       endDate: input.endDate ? dayToDate(input.endDate) : null,
@@ -169,13 +228,20 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   update: {
     schema: contractUpdateSchema,
     getId: (input) => input.id,
-    applyToEntity: (entity, input) => {
+    applyToEntity: async (entity, input, ctx) => {
       if (input.contractNumber !== undefined) entity.contractNumber = input.contractNumber
       if (input.title !== undefined) entity.title = input.title
       if (input.contractType !== undefined) entity.contractType = input.contractType
       if (input.direction !== undefined) entity.direction = input.direction
       if (input.status !== undefined) entity.status = input.status
-      if (input.customerEntityId !== undefined) entity.customerEntityId = input.customerEntityId
+      if (input.customerEntityId !== undefined) {
+        if (input.customerEntityId !== entity.customerEntityId) {
+          entity.customerSnapshot = input.customerEntityId
+            ? await buildCustomerSnapshot(ctx, input.customerEntityId)
+            : null
+        }
+        entity.customerEntityId = input.customerEntityId
+      }
       if (input.ownerUserId !== undefined) entity.ownerUserId = input.ownerUserId
       if (input.effectiveDate !== undefined) entity.effectiveDate = dayToDate(input.effectiveDate)
       if (input.endDate !== undefined) entity.endDate = input.endDate ? dayToDate(input.endDate) : null
