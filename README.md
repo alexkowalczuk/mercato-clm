@@ -63,3 +63,7 @@ Open http://localhost:3000/backend. The framework's demo seed creates `superadmi
 ## Feedback
 
 Questions for the Open Mercato team are in the upstream issue: official module vs partner-maintained extension, whether a procurement module is planned, and which conventions to follow.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
