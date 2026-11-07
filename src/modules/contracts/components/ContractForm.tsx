@@ -1,7 +1,9 @@
 "use client"
 import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrud, updateCrud, deleteCrud, fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
+import { withFlash } from '@open-mercato/ui/backend/utils/flash'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const ENTITY_ID = 'contracts:contract'
@@ -78,6 +80,145 @@ export function ContractCreateForm() {
         const body = vals as Record<string, unknown>
         await createCrud('contracts/contracts', { ...body, endDate: body.endDate || null })
       }}
+    />
+  )
+}
+
+type ContractRecord = {
+  id: string
+  contractNumber: string
+  title: string
+  contractType: string
+  direction: string
+  status: string
+  effectiveDate: string | null
+  endDate: string | null
+  currencyCode: string | null
+  description: string | null
+  updatedAt: string | null
+}
+
+type ContractFormValues = {
+  id: string
+  contractNumber: string
+  title: string
+  contractType: string
+  direction: string
+  status: string
+  effectiveDate?: string
+  endDate?: string
+  currencyCode: string
+  description: string
+  updatedAt?: string | null
+}
+
+function toContractFormValues(item: ContractRecord): ContractFormValues {
+  return {
+    id: item.id,
+    contractNumber: item.contractNumber,
+    title: item.title,
+    contractType: item.contractType,
+    direction: item.direction,
+    status: item.status,
+    effectiveDate: item.effectiveDate ?? undefined,
+    endDate: item.endDate ?? undefined,
+    currencyCode: item.currencyCode ?? '',
+    description: item.description ?? '',
+    updatedAt: item.updatedAt ?? null,
+  }
+}
+
+export function ContractEditForm({ id }: { id: string }) {
+  const t = useT()
+  const [initial, setInitial] = React.useState<ContractFormValues | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [err, setErr] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
+  const fields = useContractFields(t)
+  const groups = useContractGroups(t)
+  const successRedirect = React.useMemo(
+    () => `${LIST_HREF}?flash=${encodeURIComponent(t('contracts.contracts.form.flash.saved', 'Contract saved'))}&type=success`,
+    [t],
+  )
+  const deleteRedirect = React.useMemo(
+    () => withFlash(LIST_HREF, t('contracts.contracts.form.flash.deleted', 'Contract deleted'), 'success'),
+    [t],
+  )
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setErr(null)
+      setIsNotFound(false)
+      try {
+        const data = await fetchCrudList<ContractRecord>('contracts/contracts', { ids: String(id), pageSize: 50 })
+        const item = data?.items?.find((row) => row.id === id)
+        if (!item) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
+        if (!cancelled) setInitial(toContractFormValues(item))
+      } catch (error: unknown) {
+        if (!cancelled) {
+          if ((error as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            setErr(error instanceof Error && error.message ? error.message : t('contracts.contracts.form.error.load', 'Failed to load contract'))
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [id, t])
+
+  const fallbackInitialValues = React.useMemo<ContractFormValues>(() => ({
+    id,
+    contractNumber: '',
+    title: '',
+    contractType: 'other',
+    direction: 'sell',
+    status: 'draft',
+    currencyCode: '',
+    description: '',
+    updatedAt: null,
+  }), [id])
+
+  if (isNotFound) {
+    return (
+      <RecordNotFoundState
+        label={t('contracts.contracts.form.error.notFound', 'Contract not found')}
+        backHref={LIST_HREF}
+        backLabel={t('contracts.contracts.form.actions.backToList', 'Back to contracts')}
+      />
+    )
+  }
+
+  if (err) return <ErrorMessage label={err} />
+
+  return (
+    <CrudForm<ContractFormValues>
+      title={t('contracts.contracts.form.edit.title', 'Edit contract')}
+      titleHeadingLevel={1}
+      backHref={LIST_HREF}
+      entityId={ENTITY_ID}
+      fields={fields}
+      groups={groups}
+      initialValues={initial ?? fallbackInitialValues}
+      submitLabel={t('contracts.contracts.form.edit.submit', 'Save changes')}
+      cancelHref={LIST_HREF}
+      successRedirect={successRedirect}
+      deleteRedirect={deleteRedirect}
+      isLoading={loading}
+      loadingMessage={t('contracts.contracts.form.loading', 'Loading contract…')}
+      onSubmit={async (vals) => {
+        const body = vals as Record<string, unknown>
+        await updateCrud('contracts/contracts', { ...body, endDate: body.endDate || null })
+      }}
+      onDelete={async () => { await deleteCrud('contracts/contracts', String(id)) }}
     />
   )
 }

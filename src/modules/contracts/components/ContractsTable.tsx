@@ -8,6 +8,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type ContractRow = {
   id: string
@@ -34,6 +35,7 @@ const PAGE_SIZE = 50
 
 export default function ContractsTable() {
   const t = useT()
+  const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const [page, setPage] = React.useState(1)
 
@@ -79,6 +81,7 @@ export default function ContractsTable() {
         onPageChange: setPage,
       }}
       isLoading={isLoading}
+      onRowClick={(row) => router.push(`/backend/contracts/${row.id}/edit`)}
     />
   )
 }
