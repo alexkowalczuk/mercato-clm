@@ -21,7 +21,6 @@ Built in spare time on personal hardware, from public knowledge about CLM. No em
 |---|---|
 | List (EN) | ![List EN](docs/screenshots/list-en.png) |
 | Create with customer picker | ![Create](docs/screenshots/create.png) |
-| Edit | ![Edit](docs/screenshots/edit.png) |
 
 ## Design decisions
 
