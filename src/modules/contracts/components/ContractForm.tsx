@@ -1,6 +1,8 @@
 "use client"
 import * as React from 'react'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud, fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -43,6 +45,7 @@ function useContractFields(t: Translate): CrudField[] {
     },
     { id: 'effectiveDate', label: t('contracts.contracts.form.fields.effectiveDate', 'Effective date'), type: 'datepicker', required: true, layout: 'half' },
     { id: 'endDate', label: t('contracts.contracts.form.fields.endDate', 'End date'), type: 'datepicker', layout: 'half' },
+    { id: 'totalValue', label: t('contracts.contracts.form.fields.totalValue', 'Total value'), type: 'text', layout: 'half', placeholder: '12500.00' },
     { id: 'currencyCode', label: t('contracts.contracts.form.fields.currencyCode', 'Currency'), type: 'text', layout: 'half' },
     { id: 'description', label: t('contracts.contracts.form.fields.description', 'Description'), type: 'textarea' },
   ], [t])
@@ -51,8 +54,61 @@ function useContractFields(t: Translate): CrudField[] {
 function useContractGroups(t: Translate): CrudFormGroup[] {
   return React.useMemo<CrudFormGroup[]>(() => [
     { id: 'details', title: t('contracts.contracts.form.groups.details', 'Details'), column: 1, fields: ['contractNumber', 'title', 'contractType', 'direction', 'description'] },
-    { id: 'terms', title: t('contracts.contracts.form.groups.terms', 'Terms'), column: 2, fields: ['status', 'effectiveDate', 'endDate', 'currencyCode'] },
+    { id: 'customer', title: t('contracts.contracts.form.groups.customer', 'Customer'), column: 1, fields: [], component: (ctx: CrudFormGroupComponentProps) => <CustomerGroup {...ctx} t={t} /> },
+    { id: 'terms', title: t('contracts.contracts.form.groups.terms', 'Terms'), column: 2, fields: ['status', 'effectiveDate', 'endDate', 'totalValue', 'currencyCode'] },
   ], [t])
+}
+
+async function loadCompanies(query: string): Promise<LookupSelectItem[]> {
+  const params = new URLSearchParams({ page: '1', pageSize: '20' })
+  if (query.trim()) params.set('search', query.trim())
+  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(`/api/customers/companies?${params.toString()}`)
+  const items = Array.isArray(call.result?.items) ? call.result.items : []
+  const options: LookupSelectItem[] = []
+  for (const record of items) {
+    const id = typeof record.id === 'string' ? record.id : null
+    const name = typeof record.display_name === 'string' ? record.display_name : null
+    if (!id || !name) continue
+    const email = typeof record.primary_email === 'string' ? record.primary_email : null
+    options.push({ id, title: name, subtitle: email })
+  }
+  return options
+}
+
+function CustomerGroup({ values, setValue, t }: CrudFormGroupComponentProps & { t: Translate }) {
+  const names = React.useRef(new Map<string, string>())
+  const customerId = typeof values.customerEntityId === 'string' && values.customerEntityId ? values.customerEntityId : null
+  const savedName = typeof values.customerName === 'string' ? values.customerName : ''
+  return (
+    <LookupSelect
+      value={customerId}
+      onChange={(next) => {
+        setValue('customerEntityId', next ?? undefined)
+        setValue('customerName', next ? (names.current.get(next) ?? savedName) : undefined)
+      }}
+      fetchItems={async (query) => {
+        const options = await loadCompanies(query)
+        for (const option of options) names.current.set(option.id, option.title)
+        return options
+      }}
+      searchPlaceholder={t('contracts.contracts.form.customer.placeholder', 'Search companies…')}
+      loadingLabel={t('contracts.contracts.form.customer.loading', 'Loading companies…')}
+      emptyLabel={t('contracts.contracts.form.customer.empty', 'No companies found.')}
+      selectedHintLabel={(id) => t('contracts.contracts.form.customer.selected', 'Selected customer: {{name}}', { name: savedName || names.current.get(id) || id })}
+    />
+  )
+}
+
+function toPayload(vals: unknown) {
+  const { customerName: _customerName, ...body } = vals as Record<string, unknown>
+  return {
+    ...body,
+    endDate: body.endDate || null,
+    totalValue: body.totalValue || null,
+    customerEntityId: body.customerEntityId || null,
+    currencyCode: body.currencyCode || null,
+    description: body.description || null,
+  }
 }
 
 export function ContractCreateForm() {
@@ -77,8 +133,7 @@ export function ContractCreateForm() {
       cancelHref={LIST_HREF}
       successRedirect={successRedirect}
       onSubmit={async (vals) => {
-        const body = vals as Record<string, unknown>
-        await createCrud('contracts/contracts', { ...body, endDate: body.endDate || null })
+        await createCrud('contracts/contracts', toPayload(vals))
       }}
     />
   )
@@ -86,6 +141,9 @@ export function ContractCreateForm() {
 
 type ContractRecord = {
   id: string
+  customerEntityId: string | null
+  customerName: string | null
+  totalValue: string | null
   contractNumber: string
   title: string
   contractType: string
@@ -100,6 +158,9 @@ type ContractRecord = {
 
 type ContractFormValues = {
   id: string
+  customerEntityId?: string
+  customerName?: string
+  totalValue?: string
   contractNumber: string
   title: string
   contractType: string
@@ -115,6 +176,9 @@ type ContractFormValues = {
 function toContractFormValues(item: ContractRecord): ContractFormValues {
   return {
     id: item.id,
+    customerEntityId: item.customerEntityId ?? undefined,
+    customerName: item.customerName ?? undefined,
+    totalValue: item.totalValue ?? undefined,
     contractNumber: item.contractNumber,
     title: item.title,
     contractType: item.contractType,
@@ -215,8 +279,7 @@ export function ContractEditForm({ id }: { id: string }) {
       isLoading={loading}
       loadingMessage={t('contracts.contracts.form.loading', 'Loading contract…')}
       onSubmit={async (vals) => {
-        const body = vals as Record<string, unknown>
-        await updateCrud('contracts/contracts', { ...body, endDate: body.endDate || null })
+        await updateCrud('contracts/contracts', toPayload(vals))
       }}
       onDelete={async () => { await deleteCrud('contracts/contracts', String(id)) }}
     />

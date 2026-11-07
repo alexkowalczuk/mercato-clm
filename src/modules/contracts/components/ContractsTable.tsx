@@ -14,6 +14,8 @@ type ContractRow = {
   id: string
   contractNumber: string
   title: string
+  customerName: string | null
+  totalValue: string | null
   contractType: string
   direction: string
   status: string
@@ -42,6 +44,8 @@ export default function ContractsTable() {
   const columns = React.useMemo<ColumnDef<ContractRow>[]>(() => [
     { accessorKey: 'contractNumber', header: t('contracts.contracts.table.column.number', 'Number'), enableSorting: false, meta: { priority: 1 } },
     { accessorKey: 'title', header: t('contracts.contracts.table.column.title', 'Title'), enableSorting: false, meta: { priority: 1 } },
+    { accessorKey: 'customerName', header: t('contracts.contracts.table.column.customer', 'Customer'), enableSorting: false, cell: ({ getValue }) => (getValue() as string | null) ?? '—', meta: { priority: 2 } },
+    { accessorKey: 'totalValue', header: t('contracts.contracts.table.column.value', 'Value'), enableSorting: false, cell: ({ row }) => (row.original.totalValue ? `${row.original.totalValue} ${row.original.currencyCode ?? ''}`.trim() : '—'), meta: { priority: 3 } },
     { accessorKey: 'contractType', header: t('contracts.contracts.table.column.type', 'Type'), enableSorting: false, meta: { priority: 3 } },
     { accessorKey: 'status', header: t('contracts.contracts.table.column.status', 'Status'), enableSorting: false, meta: { priority: 2 } },
     { accessorKey: 'effectiveDate', header: t('contracts.contracts.table.column.effectiveDate', 'Effective'), enableSorting: false, meta: { priority: 4 } },
