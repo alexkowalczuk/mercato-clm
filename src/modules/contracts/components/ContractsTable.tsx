@@ -6,6 +6,8 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
+import Link from 'next/link'
 
 type ContractRow = {
   id: string
@@ -60,6 +62,11 @@ export default function ContractsTable() {
     <DataTable
       title={t('contracts.contracts.table.title', 'Contracts')}
       titleHeadingLevel={1}
+      actions={(
+        <Button asChild>
+          <Link href="/backend/contracts/create">{t('contracts.contracts.table.actions.create', 'New contract')}</Link>
+        </Button>
+      )}
       columns={columns}
       data={data?.items ?? []}
       entityId="contracts:contract"
